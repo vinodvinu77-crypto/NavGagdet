@@ -1,0 +1,45 @@
+name: Build firmware and publish the installer page
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build for ESP32-C6 with ESP-IDF 5.5.2
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.2
+          target: esp32c6
+          command: |
+            idf.py build
+            mkdir -p docs/flash
+            cd build
+            python -m esptool --chip esp32c6 merge_bin -o ../docs/flash/MiniNav-C6.bin --flash_mode dio --flash_freq 80m --flash_size 16MB @flash_args
+
+      - name: Check the merged image exists
+        run: ls -l docs/flash/MiniNav-C6.bin
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
