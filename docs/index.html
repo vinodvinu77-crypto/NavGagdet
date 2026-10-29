@@ -83,7 +83,6 @@ btn.addEventListener('click', async () => {
       import('https://unpkg.com/esptool-js@0.7.0/bundle.js'), fetch('flash/MiniNav-C6.bin', { cache: 'no-store' })]);
     if (!resp.ok) throw new Error('firmware file not found (flash/MiniNav-C6.bin)');
     const buf = new Uint8Array(await resp.arrayBuffer());
-    let bin = ''; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
 
     say('Connecting to the board…');
     transport = new Transport(port, false);
@@ -94,7 +93,7 @@ btn.addEventListener('click', async () => {
 
     say('Writing MiniNav…');
     await loader.writeFlash({
-      fileArray: [{ data: bin, address: 0x0 }],        // merged image: bootloader + partitions + app, starts at 0x0 on the C6
+      fileArray: [{ data: buf, address: 0x0 }],        // merged image: bootloader + partitions + app, starts at 0x0 on the C6
       flashMode: 'keep', flashFreq: 'keep', flashSize: 'keep', eraseAll: false, compress: true,
       reportProgress: (i, written, total) => { const p = Math.round(written / total * 100); fill.style.width = p + '%'; say('Writing MiniNav… ' + p + '%'); },
     });
