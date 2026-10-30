@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MiniNav C6 Installer</title>
+<style>
+  :root { --bg:#0b1220; --card:#131c2e; --ink:#e8eefc; --dim:#93a1bd; --acc:#38bdf8; --ok:#22c55e; --err:#f87171; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.55 system-ui,sans-serif; }
+  main { max-width:720px; margin:0 auto; padding:20px 16px 60px; display:grid; gap:16px; }
+  h1 { margin:8px 0 0; font-size:28px; } h2 { margin:0 0 6px; font-size:19px; }
+  .card { background:var(--card); border-radius:14px; padding:18px; }
+  .dim { color:var(--dim); } a { color:var(--acc); }
+  button.go { font:inherit; font-weight:700; border:0; border-radius:12px; padding:14px 20px; background:var(--acc); color:#04121f; }
+  button:disabled { opacity:.45; }
+  .bar { height:10px; border-radius:6px; background:#1e2a44; overflow:hidden; margin:12px 0 4px; } .bar > i { display:block; height:100%; width:0; background:var(--acc); }
+  .status.ok { color:var(--ok); } .status.err { color:var(--err); }
+  pre { background:#0a101c; border-radius:10px; padding:10px; max-height:200px; overflow:auto; font-size:12px; white-space:pre-wrap; }
+  code { background:#0a101c; padding:1px 5px; border-radius:5px; }
+  ol, ul { padding-left:22px; margin:6px 0; } td { padding:4px 10px 4px 0; vertical-align:top; }
+</style>
+</head>
+<body>
+<main>
+  <h1>MiniNav for ESP32-C6 AMOLED</h1>
+  <div class="dim">A turn-by-turn display for the <b>Waveshare ESP32-C6-Touch-AMOLED-2.16</b> (480×480). Your phone plans the route and sends each turn over Bluetooth; the board shows it.</div>
+
+  <div class="card">
+    <h2>What this is, and isn't</h2>
+    <p class="dim">This board has no PSRAM (512&nbsp;KB RAM), so it cannot decode Android Auto's video. This version shows turn arrows, distance, street name, speed and ETA instead of the Google Maps picture. Routing comes from OpenStreetMap, not Google Maps.</p>
+  </div>
+
+  <div class="card">
+    <h2>Step 1 · Install the firmware</h2>
+    <ol>
+      <li>Use <b>Chrome or Edge on a computer</b> and plug the board in with a USB-C data cable.</li>
+      <li>Click <b>Install</b>, choose the board's serial port (it shows as <i>USB JTAG/serial</i>) and wait about a minute.</li>
+      <li>If it doesn't connect, hold <b>BOOT</b>, tap <b>RESET</b>, release <b>BOOT</b>, and try again.</li>
+    </ol>
+    <button class="go" id="install">Install MiniNav</button>
+    <div class="bar" id="bar" hidden><i></i></div>
+    <div class="status" id="status"></div>
+    <pre id="log" hidden></pre>
+  </div>
+
+  <div class="card">
+    <h2>Step 2 · Use it on your phone</h2>
+    <ol>
+      <li>On an Android phone with Chrome, open <a href="app/">the MiniNav Phone page</a> and turn on Bluetooth and Location.</li>
+      <li>Tap <b>Connect to MiniNav</b> and pick <i>MiniNav</i>. The board's dot turns green.</li>
+      <li>Tap <b>Test screen</b> to check the display, then search for a destination and tap a result.</li>
+      <li>Keep the page open with the screen on. Chrome can't send Bluetooth data from the background.</li>
+    </ol>
+    <p class="dim">iPhone: Safari doesn't support Web Bluetooth. A Bluefy-style browser may work, but it's untested.</p>
+  </div>
+
+  <div class="card">
+    <h2>Troubleshooting</h2>
+    <table>
+      <tr><td><b>Wrong chip error</b></td><td>This installer only accepts an ESP32-C6.</td></tr>
+      <tr><td><b>Black screen after flashing</b></td><td>Unplug and replug USB. Check the board is the AMOLED-2.16 model.</td></tr>
+      <tr><td><b>MiniNav not in the Bluetooth list</b></td><td>Press RESET on the board. The board only advertises while no phone is connected.</td></tr>
+      <tr><td><b>Search or routing fails</b></td><td>The phone needs internet (mobile data is fine). The free OSM services can be busy, so try again.</td></tr>
+    </table>
+  </div>
+</main>
+
+<script type="module">
+const btn = document.getElementById('install'), statusEl = document.getElementById('status');
+const bar = document.getElementById('bar'), fill = bar.firstElementChild, logEl = document.getElementById('log');
+const say = (t, cls) => { statusEl.textContent = t; statusEl.className = 'status ' + (cls || ''); };
+const log = t => { logEl.textContent += t; logEl.scrollTop = 1e9; };
+if (!('serial' in navigator)) { btn.disabled = true; say("This browser can't flash boards. Use Chrome or Edge on a computer.", 'err'); }
+
+btn.addEventListener('click', async () => {
+  let port, transport;
+  try { port = await navigator.serial.requestPort(); } catch (e) { say('No port picked.'); return; }
+  btn.disabled = true; logEl.textContent = ''; logEl.hidden = false; bar.hidden = false; fill.style.width = '0';
+  try {
+    say('Downloading the firmware…');
+    const [{ ESPLoader, Transport }, resp] = await Promise.all([
+      import('https://unpkg.com/esptool-js@0.7.0/bundle.js'), fetch('flash/MiniNav-C6.bin', { cache: 'no-store' })]);
+    if (!resp.ok) throw new Error('firmware file not found (flash/MiniNav-C6.bin)');
+    const buf = new Uint8Array(await resp.arrayBuffer());
+    let bin = ''; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+
+    say('Connecting to the board…');
+    transport = new Transport(port, false);
+    const terminal = { clean() { logEl.textContent = ''; }, writeLine: t => log(t + '\n'), write: log };
+    const loader = new ESPLoader({ transport, baudrate: 921600, romBaudrate: 115200, terminal });
+    const chip = await loader.main();
+    if (!/ESP32-C6/.test(chip)) throw new Error('This is a ' + chip + ', this installer is for the ESP32-C6 board.');
+
+    say('Writing MiniNav…');
+    await loader.writeFlash({
+      fileArray: [{ data: bin, address: 0x0 }],        // merged image: bootloader + partitions + app, starts at 0x0 on the C6
+      flashMode: 'keep', flashFreq: 'keep', flashSize: 'keep', eraseAll: false, compress: true,
+      reportProgress: (i, written, total) => { const p = Math.round(written / total * 100); fill.style.width = p + '%'; say('Writing MiniNav… ' + p + '%'); },
+    });
+    say('Restarting the board…');
+    await loader.after('custom_reset', false, 'R1|W100|R0|W50');   // pulse RESET (RTS) so the new firmware starts
+    fill.style.width = '100%';
+    say('Done. The board restarts and shows "Waiting for phone...". If it stays black, unplug it and plug it back in.', 'ok');
+  } catch (e) {
+    say('Flashing failed: ' + (e && e.message ? e.message : e) + '  Hold BOOT, tap RESET, release BOOT, then try again.', 'err');
+  } finally {
+    try { if (transport) await transport.disconnect(); else await port.close(); } catch (_) {}
+    btn.disabled = !('serial' in navigator);
+  }
+});
+</script>
+</body>
+</html>
